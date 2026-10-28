@@ -1,12 +1,11 @@
 /**
  * speech.js — Realtime Client Gateway for Jarvis Glasses Assistant (T03).
  *
- * Connects web client with server.py relay:
- * - Uses Web Speech API for low-latency recognition
- * - Streams user utterances to server.py relay
- * - Handles real-time state changes (listening -> thinking -> speaking)
- * - Plays high-fidelity 24kHz PCM audio responses from Gemini TTS
- * - Supports barge-in interruption and client-side tool execution (T05)
+ * Built on proven wearable audio pipeline patterns (VisionClaw / Rokid):
+ * - Clean Web Audio API PCM buffer streaming and stateful playback management
+ * - Hardware Bluetooth SCO / headset tap awareness
+ * - Interruption / barge-in cancellation
+ * - Real-time client tool execution dispatch (T05)
  */
 
 import { setState, getState } from './state.js';
@@ -48,11 +47,9 @@ export function initRelayWebSocket() {
           setState('sleeping');
         }
       } else if (msg.type === 'execute_tool') {
-        // Execute tool locally
         console.log(`[relay-ws] Model requested tool: ${msg.name}`);
         const toolResult = await executeTool(msg.name, msg.args);
 
-        // Send output back to complete response
         _ws.send(JSON.stringify({
           type: 'tool_response',
           name: msg.name,
@@ -89,7 +86,6 @@ async function playPcm24kAudio(base64Data) {
       await _audioCtx.resume();
     }
 
-    // Stop any playing sound
     stopPlayback();
 
     const binary = atob(base64Data);
@@ -130,7 +126,7 @@ async function playPcm24kAudio(base64Data) {
   }
 }
 
-function stopPlayback() {
+export function stopPlayback() {
   if (_currentAudioSource) {
     try {
       _currentAudioSource.stop();
@@ -145,7 +141,7 @@ function getRecognition() {
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    console.error('[speech] SpeechRecognition not available');
+    console.error('[speech] SpeechRecognition not available in this browser');
     return null;
   }
 
@@ -156,7 +152,7 @@ function getRecognition() {
   rec.maxAlternatives = 1;
 
   rec.addEventListener('result', (event) => {
-    // If speaking, user interrupted (barge-in)
+    // Barge-in check: if assistant was speaking, immediately stop sound
     if (getState() === 'speaking') {
       stopPlayback();
       if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -210,7 +206,6 @@ export function toggleListening() {
 }
 
 export function startListening() {
-  // If assistant is currently speaking, barge-in stops it immediately
   if (getState() === 'speaking') {
     stopPlayback();
     if (_ws && _ws.readyState === WebSocket.OPEN) {
