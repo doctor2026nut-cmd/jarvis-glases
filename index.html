@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Jarvis — Voice Assistant</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header__title">J.A.R.V.I.S.</h1>
+      <p class="header__subtitle">Glasses Assistant</p>
+    </header>
+
+    <!-- Status indicator -->
+    <section class="status" id="status-section">
+      <div class="status__orb" id="status-orb"></div>
+      <p class="status__label" id="status-label">Спит</p>
+    </section>
+
+    <!-- Transcript area -->
+    <section class="transcript" id="transcript-section">
+      <div class="transcript__scroll" id="transcript-scroll">
+        <p class="transcript__placeholder">Нажмите кнопку, чтобы начать</p>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="controls">
+      <!-- Audio device selector -->
+      <div class="controls__device">
+        <label for="audio-input-select" class="controls__device-label">🎤 Микрофон</label>
+        <select id="audio-input-select" class="controls__select">
+          <option value="">Загрузка…</option>
+        </select>
+      </div>
+
+      <!-- Main listen button -->
+      <button class="controls__listen-btn" id="listen-btn" aria-label="Слушать">
+        <span class="controls__listen-icon" id="listen-icon">🎙️</span>
+      </button>
+
+      <!-- Audio output selector -->
+      <div class="controls__device">
+        <label for="audio-output-select" class="controls__device-label">🔊 Динамик</label>
+        <select id="audio-output-select" class="controls__select">
+          <option value="">Загрузка…</option>
+        </select>
+      </div>
+    </section>
+
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
