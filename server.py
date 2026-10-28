@@ -1,3 +1,4 @@
+import agent_bridge
 """
 Jarvis Glasses Assistant — Realtime Voice & WebSocket Relay Server (T02/T03)
 Integrated with VisionClaw Gateway Patterns:
@@ -42,6 +43,44 @@ SYSTEM_INSTRUCTION = """Ты — Джарвис, персональный гол
 Язык общения: русский."""
 
 TOOLS_DECLARATION = [
+    {
+        "name": "delegate_to_agent",
+        "description": "Передать поручение или запрос одному из субагентов (Antigravity на сервере, Meta Muse, OpenClaw).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "agent": {
+                    "type": "STRING",
+                    "description": "Имя агента: 'antigravity', 'muse', 'openclaw'",
+                    "enum": ["antigravity", "muse", "openclaw"]
+                },
+                "instruction": {
+                    "type": "STRING",
+                    "description": "Четкая задача или вопрос, который нужно передать агенту"
+                }
+            },
+            "required": ["agent", "instruction"]
+        }
+    },
+    {
+        "name": "control_media_app",
+        "description": "Управление приложениями на смартфоне (музыка, переводчик, заметки, звонки).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "app": {
+                    "type": "STRING",
+                    "description": "Приложение: 'music', 'translator', 'notes', 'whatsapp'",
+                    "enum": ["music", "translator", "notes", "whatsapp"]
+                },
+                "action": {
+                    "type": "STRING",
+                    "description": "Действие: 'open', 'play', 'pause', 'next'"
+                }
+            },
+            "required": ["app", "action"]
+        }
+    },
     {
         "name": "get_system_status",
         "description": "Получить текущий статус системы, устройства (очков/смартфона), сети и батареи."
@@ -207,13 +246,33 @@ async def handle_ws(request):
                             continue
 
                         if res["type"] == "tool_call":
-                            logger.info(f"[{session_id}] Dispatching tool: {res['name']}")
-                            await ws.send_json({
-                                "type": "execute_tool",
-                                "name": res["name"],
-                                "args": res["args"],
-                                "candidate": res["candidate"]
-                            })
+                            tool_name = res["name"]
+                            tool_args = res["args"]
+                            logger.info(f"[{session_id}] Dispatching tool: {tool_name}")
+
+                            # Handle server-side agent delegation directly
+                            if tool_name == "delegate_to_agent":
+                                agent_res = await agent_bridge.execute_agent_command(
+                                    tool_args.get("agent", ""),
+                                    tool_args.get("instruction", "")
+                                )
+                                reply_text = await handle_tool_feedback(session, res["candidate"], tool_name, agent_res)
+                                logger.info(f"[{session_id}] Jarvis post-agent reply: {reply_text}")
+                                pcm_b64 = await generate_tts_audio(reply_text)
+                                if not session.is_interrupted:
+                                    await ws.send_json({
+                                        "type": "assistant_reply",
+                                        "text": reply_text,
+                                        "audio_pcm24k": pcm_b64
+                                    })
+                            else:
+                                # Client-side device tools (battery, sensors)
+                                await ws.send_json({
+                                    "type": "execute_tool",
+                                    "name": tool_name,
+                                    "args": tool_args,
+                                    "candidate": res["candidate"]
+                                })
                         else:
                             reply_text = res["text"]
                             logger.info(f"[{session_id}] Jarvis reply: {reply_text}")
