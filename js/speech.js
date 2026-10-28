@@ -1,60 +1,235 @@
 /**
- * speech.js — Browser-native Speech Recognition wrapper.
+ * speech.js — Realtime Client Gateway for Jarvis Glasses Assistant (T03).
  *
- * Uses the Web Speech API (SpeechRecognition) for the prototype.
- * A real STT/TTS backend will be wired in later via env-configured URLs.
+ * Connects web client with server.py relay:
+ * - Uses Web Speech API for low-latency recognition
+ * - Streams user utterances to server.py relay
+ * - Handles real-time state changes (listening -> thinking -> speaking)
+ * - Plays high-fidelity 24kHz PCM audio responses from Gemini TTS
+ * - Supports barge-in interruption and client-side tool execution (T05)
  */
 
-import { setState }          from './state.js';
-import { getSelectedInputId } from './audio.js';
-import { addBubble }          from './ui.js';
+import { setState, getState } from './state.js';
+import { addBubble } from './ui.js';
+import { executeTool } from './tools.js';
 
+let _ws = null;
 let _recognition = null;
 let _isListening = false;
+let _audioCtx = null;
+let _currentAudioSource = null;
 
 /**
- * Initialise speech recognition (lazy, created on first use).
+ * Initialize WebSocket connection to server relay.
  */
+export function initRelayWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+  _ws = new WebSocket(wsUrl);
+
+  _ws.onopen = () => {
+    console.log('[relay-ws] Connected to Jarvis server relay');
+  };
+
+  _ws.onmessage = async (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'state') {
+        setState(msg.state);
+      } else if (msg.type === 'assistant_reply') {
+        setState('speaking');
+        addBubble('jarvis', msg.text);
+
+        if (msg.audio_pcm24k) {
+          await playPcm24kAudio(msg.audio_pcm24k);
+        } else {
+          setState('sleeping');
+        }
+      } else if (msg.type === 'execute_tool') {
+        // Execute tool locally
+        console.log(`[relay-ws] Model requested tool: ${msg.name}`);
+        const toolResult = await executeTool(msg.name, msg.args);
+
+        // Send output back to complete response
+        _ws.send(JSON.stringify({
+          type: 'tool_response',
+          name: msg.name,
+          candidate: msg.candidate,
+          result: toolResult
+        }));
+      } else if (msg.type === 'error') {
+        console.error('[relay-ws] Server error:', msg.message);
+        setState('error');
+        setTimeout(() => setState('sleeping'), 3000);
+      }
+    } catch (err) {
+      console.error('[relay-ws] Error handling message:', err);
+    }
+  };
+
+  _ws.onerror = (err) => {
+    console.warn('[relay-ws] WebSocket error:', err);
+  };
+
+  _ws.onclose = () => {
+    console.log('[relay-ws] Connection closed. Reconnecting in 2s...');
+    setTimeout(initRelayWebSocket, 2000);
+  };
+}
+
+/** Play raw 24kHz PCM linear audio received from Gemini */
+async function playPcm24kAudio(base64Data) {
+  try {
+    if (!_audioCtx) {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    }
+    if (_audioCtx.state === 'suspended') {
+      await _audioCtx.resume();
+    }
+
+    // Stop any playing sound
+    stopPlayback();
+
+    const binary = atob(base64Data);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const int16Array = new Int16Array(bytes.buffer);
+    const float32Array = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i++) {
+      float32Array[i] = int16Array[i] / 32768.0;
+    }
+
+    const audioBuffer = _audioCtx.createBuffer(1, float32Array.length, 24000);
+    audioBuffer.getChannelData(0).set(float32Array);
+
+    const source = _audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(_audioCtx.destination);
+
+    _currentAudioSource = source;
+
+    return new Promise((resolve) => {
+      source.onended = () => {
+        _currentAudioSource = null;
+        if (getState() === 'speaking') {
+          setState('sleeping');
+        }
+        resolve();
+      };
+      source.start(0);
+    });
+  } catch (e) {
+    console.error('[audio-player] Failed to play PCM audio:', e);
+    setState('sleeping');
+  }
+}
+
+function stopPlayback() {
+  if (_currentAudioSource) {
+    try {
+      _currentAudioSource.stop();
+    } catch (_) {}
+    _currentAudioSource = null;
+  }
+}
+
+/** Initialise Speech Recognition */
 function getRecognition() {
   if (_recognition) return _recognition;
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    console.error('[speech] SpeechRecognition API not available in this browser.');
+    console.error('[speech] SpeechRecognition not available');
     return null;
   }
 
   const rec = new SpeechRecognition();
-  rec.lang       = 'ru-RU';
-  rec.continuous  = false;   // one utterance at a time
+  rec.lang = 'ru-RU';
+  rec.continuous = false;
   rec.interimResults = true;
   rec.maxAlternatives = 1;
 
-  rec.addEventListener('result', handleResult);
-  rec.addEventListener('end',    handleEnd);
-  rec.addEventListener('error',  handleError);
+  rec.addEventListener('result', (event) => {
+    // If speaking, user interrupted (barge-in)
+    if (getState() === 'speaking') {
+      stopPlayback();
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify({ type: 'barge_in' }));
+      }
+      setState('listening');
+    }
+
+    const result = event.results[event.results.length - 1];
+    const text = result[0].transcript.trim();
+
+    if (result.isFinal && text) {
+      addBubble('user', text);
+      setState('thinking');
+
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify({
+          type: 'user_utterance',
+          text: text
+        }));
+      } else {
+        console.warn('[speech] WebSocket not open');
+        setState('error');
+      }
+    }
+  });
+
+  rec.addEventListener('end', () => {
+    _isListening = false;
+    if (getState() === 'listening') {
+      setState('sleeping');
+    }
+  });
+
+  rec.addEventListener('error', (event) => {
+    console.warn('[speech] Recognition error:', event.error);
+    _isListening = false;
+    if (event.error === 'not-allowed') {
+      setState('error');
+    } else {
+      if (getState() === 'listening') setState('sleeping');
+    }
+  });
 
   _recognition = rec;
   return rec;
 }
 
-/** Toggle listening on/off. */
 export function toggleListening() {
   _isListening ? stopListening() : startListening();
 }
 
 export function startListening() {
+  // If assistant is currently speaking, barge-in stops it immediately
+  if (getState() === 'speaking') {
+    stopPlayback();
+    if (_ws && _ws.readyState === WebSocket.OPEN) {
+      _ws.send(JSON.stringify({ type: 'barge_in' }));
+    }
+  }
+
   const rec = getRecognition();
   if (!rec) {
     setState('error');
     return;
   }
+
   try {
     rec.start();
     _isListening = true;
     setState('listening');
   } catch (e) {
-    console.warn('[speech] start() error (may already be running):', e);
+    console.warn('[speech] start error:', e);
   }
 }
 
@@ -63,68 +238,4 @@ export function stopListening() {
     _recognition.stop();
   }
   _isListening = false;
-}
-
-/* ---- Internal handlers ---- */
-
-function handleResult(event) {
-  const result = event.results[event.results.length - 1];
-  const text = result[0].transcript.trim();
-
-  if (result.isFinal && text) {
-    setState('thinking');
-    addBubble('user', text);
-
-    // Simulate Jarvis response (placeholder until LLM is wired).
-    simulateJarvisReply(text);
-  }
-}
-
-function handleEnd() {
-  _isListening = false;
-  // If we were still in "listening" state, go back to sleep.
-  // (If we moved to "thinking" already, don't override.)
-  import('./state.js').then(({ getState }) => {
-    if (getState() === 'listening') {
-      setState('sleeping');
-    }
-  });
-}
-
-function handleError(event) {
-  console.error('[speech] Recognition error:', event.error);
-  _isListening = false;
-
-  if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-    setState('error');
-  } else {
-    setState('sleeping');
-  }
-}
-
-/* ---- Placeholder "AI" response ---- */
-
-async function simulateJarvisReply(userText) {
-  // Fake delay to show "thinking" state.
-  await new Promise(r => setTimeout(r, 1200 + Math.random() * 800));
-
-  setState('speaking');
-  const reply = `Я получил: «${userText}». Скоро здесь будет настоящий LLM.`;
-  addBubble('jarvis', reply);
-
-  // Speak the reply with browser TTS (placeholder).
-  speakBrowser(reply).finally(() => setState('sleeping'));
-}
-
-/** Use browser SpeechSynthesis as a placeholder TTS. */
-function speakBrowser(text) {
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis) { resolve(); return; }
-
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = 'ru-RU';
-    utt.onend = resolve;
-    utt.onerror = resolve;
-    window.speechSynthesis.speak(utt);
-  });
 }
