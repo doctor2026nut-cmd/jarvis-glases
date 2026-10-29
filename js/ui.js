@@ -1,56 +1,113 @@
 /**
- * ui.js — DOM updates: status orb, label, transcript bubbles, button state.
+ * ui.js — DOM updates: orb, state label, chat bubbles, WS dot.
+ * Mobile-optimised: interim bubble reuse, auto-scroll, haptic feedback.
  */
 
 import { onStateChange, getState, getStateLabel } from './state.js';
 
-const orb       = () => document.getElementById('status-orb');
-const label     = () => document.getElementById('status-label');
-const btn       = () => document.getElementById('listen-btn');
-const scroll    = () => document.getElementById('transcript-scroll');
+const ORB_EMOJI = {
+  sleeping:  '😴',
+  listening: '👂',
+  thinking:  '🤔',
+  speaking:  '🗣️',
+  error:     '❌',
+};
 
-/**
- * Bind UI to reactive state.
- */
+let _interimBubble = null;  // reuse interim bubble instead of creating new ones
+
 export function initUI() {
-  // Set initial visual state.
   applyState(getState());
+  onStateChange(applyState);
 
-  // React to every state change.
-  onStateChange((state) => applyState(state));
+  // Clear button
+  document.getElementById('clear-btn')?.addEventListener('click', clearChat);
 }
 
 function applyState(state) {
-  const orbEl   = orb();
-  const labelEl = label();
-  const btnEl   = btn();
+  // Orb emoji
+  const emoji = document.getElementById('orb-emoji');
+  if (emoji) emoji.textContent = ORB_EMOJI[state] ?? '🤖';
 
-  if (orbEl)   orbEl.dataset.state = state;
-  if (labelEl) {
-    labelEl.textContent = getStateLabel(state);
-    labelEl.style.color = getComputedStyle(orbEl).backgroundColor;
+  // Orb data-state (CSS handles colours/animations)
+  const orbWrap = document.getElementById('status-orb')?.parentElement;
+  if (orbWrap) orbWrap.dataset.state = state;
+
+  // State label
+  const lbl = document.getElementById('status-label');
+  if (lbl) lbl.textContent = getStateLabel(state);
+
+  // Listen button
+  const listenBtn = document.getElementById('listen-btn');
+  if (listenBtn) listenBtn.dataset.active = (state === 'listening') ? 'true' : 'false';
+
+  // Haptic on state change (mobile)
+  if (navigator.vibrate) {
+    if (state === 'listening') navigator.vibrate(30);
+    if (state === 'speaking')  navigator.vibrate([15, 30, 15]);
+    if (state === 'error')     navigator.vibrate([100, 50, 100]);
   }
-  if (btnEl)   btnEl.dataset.active = (state === 'listening') ? 'true' : 'false';
 }
 
 /**
- * Add a chat bubble to the transcript.
- * @param {'user'|'jarvis'} role
- * @param {string} text
+ * Add or update a chat bubble.
+ * role: 'user' | 'interim' | 'jarvis' | 'system'
  */
 export function addBubble(role, text) {
-  const container = scroll();
-  if (!container) return;
+  const scroll = document.getElementById('transcript-scroll');
+  if (!scroll) return;
 
-  // Remove placeholder if present.
-  const placeholder = container.querySelector('.transcript__placeholder');
-  if (placeholder) placeholder.remove();
+  // Remove hint
+  document.getElementById('chat-hint')?.remove();
 
-  const div = document.createElement('div');
-  div.classList.add('transcript__bubble', `transcript__bubble--${role}`);
-  div.textContent = text;
-  container.appendChild(div);
+  if (role === 'interim') {
+    // Reuse or create interim bubble
+    if (!_interimBubble || !scroll.contains(_interimBubble)) {
+      _interimBubble = _makeBubble('interim');
+      scroll.appendChild(_interimBubble);
+    }
+    _interimBubble.textContent = '…' + text;
+    _scrollToBottom(scroll);
+    return;
+  }
 
-  // Auto-scroll to bottom.
-  container.scrollTop = container.scrollHeight;
+  // Commit interim → user bubble
+  if (role === 'user' && _interimBubble && scroll.contains(_interimBubble)) {
+    _interimBubble.className = 'bubble bubble--user';
+    _interimBubble.textContent = text;
+    _interimBubble = null;
+    _scrollToBottom(scroll);
+    return;
+  }
+
+  _interimBubble = null;
+  const el = _makeBubble(role);
+  el.textContent = text;
+  scroll.appendChild(el);
+  _scrollToBottom(scroll);
+}
+
+function _makeBubble(role) {
+  const el = document.createElement('div');
+  el.className = `bubble bubble--${role}`;
+  return el;
+}
+
+function _scrollToBottom(el) {
+  requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+}
+
+export function clearChat() {
+  const scroll = document.getElementById('transcript-scroll');
+  if (!scroll) return;
+  scroll.innerHTML = `
+    <div class="chat__hint" id="chat-hint">
+      <p>👋 Нажмите <strong>👂 Авто</strong> — говорите в очки,<br>Джарвис ответит голосом</p>
+    </div>`;
+  _interimBubble = null;
+}
+
+/** Update WebSocket indicator dot */
+export function setWsDot(state) {  // 'connecting' | 'connected' | 'disconnected'
+  const dot = document.getElementById('ws-dot');
+  if (dot) dot.dataset.state = state;
 }

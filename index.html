@@ -10,11 +10,11 @@
   <meta name="apple-mobile-web-app-title" content="Jarvis" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0a0e17" />
-  <link rel="manifest" href="manifest.json" />
+  <link rel="manifest" href="manifest.json?v=5" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
-  <title>Jarvis</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <title>Jarvis Glasses Assistant</title>
+  <link rel="stylesheet" href="css/style.css?v=5" />
 </head>
 <body>
 <div id="app">
@@ -26,71 +26,67 @@
     </div>
     <div class="header__center">
       <span class="header__title">J.A.R.V.I.S.</span>
-      <span class="header__sub">Glasses Assistant</span>
+      <span class="header__sub">Glasses Voice Assistant</span>
     </div>
     <div class="header__right">
+      <button class="icon-btn" id="open-settings-btn" title="Настройка кнопок очков">⚙️</button>
       <button class="icon-btn" id="clear-btn" title="Очистить чат">🗑️</button>
     </div>
   </header>
-    <!-- Settings Button in Header -->
-    <div style="position: absolute; top: 16px; right: 16px;">
-      <button id="open-settings-btn" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer;" title="Настройка кнопок очков">⚙️</button>
-    </div>
 
-    <!-- Gestures / Buttons Settings Modal -->
-    <div id="settings-modal" class="modal" style="display: none;">
-      <div class="modal__content">
-        <div class="modal__header">
-          <h2>⚙️ Настройка сенсоров очков</h2>
-          <button id="close-settings-btn" class="modal__close">&times;</button>
-        </div>
-        <div class="modal__tabs">
-          <button class="tab-btn tab-btn--active" data-tab="left-tab">Левая дужка</button>
-          <button class="tab-btn" data-tab="right-tab">Правая дужка</button>
-        </div>
-
-        <div id="left-tab" class="tab-content tab-content--active">
-          <div class="setting-row">
-            <label>1 клик (Single):</label>
-            <select id="sel-left_single" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>2 клика (Double):</label>
-            <select id="sel-left_double" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>3 клика (Triple):</label>
-            <select id="sel-left_triple" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>Удержание (Long):</label>
-            <select id="sel-left_long" class="gesture-select"></select>
-          </div>
-        </div>
-
-        <div id="right-tab" class="tab-content">
-          <div class="setting-row">
-            <label>1 клик (Single):</label>
-            <select id="sel-right_single" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>2 клика (Double):</label>
-            <select id="sel-right_double" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>3 клика (Triple):</label>
-            <select id="sel-right_triple" class="gesture-select"></select>
-          </div>
-          <div class="setting-row">
-            <label>Удержание (Long):</label>
-            <select id="sel-right_long" class="gesture-select"></select>
-          </div>
-        </div>
-
-        <button id="save-settings-btn" class="modal__save-btn">💾 Сохранить раскладку</button>
+  <!-- Gestures / Buttons Settings Modal -->
+  <div id="settings-modal" class="modal" style="display: none;">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h2>⚙️ Настройка сенсоров очков</h2>
+        <button id="close-settings-btn" class="modal__close">&times;</button>
       </div>
-    </div>
+      <div class="modal__tabs">
+        <button class="tab-btn tab-btn--active" data-tab="left-tab">Левая дужка</button>
+        <button class="tab-btn" data-tab="right-tab">Правая дужка</button>
+      </div>
 
+      <div id="left-tab" class="tab-content tab-content--active">
+        <div class="setting-row">
+          <label>1 клик (Single):</label>
+          <select id="sel-left_single" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>2 клика (Double):</label>
+          <select id="sel-left_double" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>3 клика (Triple):</label>
+          <select id="sel-left_triple" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>Удержание (Long):</label>
+          <select id="sel-left_long" class="gesture-select"></select>
+        </div>
+      </div>
+
+      <div id="right-tab" class="tab-content">
+        <div class="setting-row">
+          <label>1 клик (Single):</label>
+          <select id="sel-right_single" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>2 клика (Double):</label>
+          <select id="sel-right_double" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>3 клика (Triple):</label>
+          <select id="sel-right_triple" class="gesture-select"></select>
+        </div>
+        <div class="setting-row">
+          <label>Удержание (Long):</label>
+          <select id="sel-right_long" class="gesture-select"></select>
+        </div>
+      </div>
+
+      <button id="save-settings-btn" class="modal__save-btn">💾 Сохранить раскладку</button>
+    </div>
+  </div>
 
   <!-- ── Orb + status ── -->
   <section class="orb-section">
@@ -101,6 +97,8 @@
       </div>
     </div>
     <p class="state-label" id="status-label">Спит</p>
+    <!-- Live speech recognition feedback -->
+    <div class="live-mic-feedback" id="live-mic-feedback">🎤 Нажмите «Говорить» или «👂 Авто»</div>
   </section>
 
   <!-- ── Transcript ── -->
@@ -110,6 +108,19 @@
         <p>👋 Нажмите <strong>👂 Авто</strong> — говорите в очки,<br>Джарвис ответит голосом</p>
       </div>
     </div>
+  </section>
+
+  <!-- ── Quick Chips & Text Input Bar ── -->
+  <section class="quick-input-section">
+    <div class="quick-chips">
+      <button class="chip-btn" data-prompt="Сколько будет 15 умножить на 4?">⚡ 15 * 4</button>
+      <button class="chip-btn" data-prompt="Передай агенту OpenClaw посчитать 100 минус 37">🚀 OpenClaw задача</button>
+      <button class="chip-btn" data-prompt="Какой статус кандидатов в CRM I CLUB?">💼 I CLUB CRM</button>
+    </div>
+    <form class="text-input-form" id="chat-form">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Написать или сказать в очки..." autocomplete="off" />
+      <button type="submit" class="send-btn" id="chat-send-btn" title="Отправить">➤</button>
+    </form>
   </section>
 
   <!-- ── Devices row (collapsible) ── -->
@@ -157,6 +168,6 @@
 
 </div><!-- #app -->
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

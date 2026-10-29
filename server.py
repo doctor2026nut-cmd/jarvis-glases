@@ -161,29 +161,67 @@ async def generate_gemini_reply(user_text, session: SessionState):
             return {"type": "text", "text": text_reply}
 
 async def generate_tts_audio(text):
-    """Generates 24kHz PCM linear audio via Flash TTS."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
-    tts_prompt = f"Read the following text aloud with no modification: {text}"
-    payload = {
-        "contents": [{"parts": [{"text": tts_prompt}]}],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": "Puck"
+    """
+    Generates audio for Jarvis.
+    Primary: High-fidelity local Edge Neural TTS with ffmpeg PCM 24kHz stream.
+    Fallback: Gemini Preview TTS.
+    """
+    clean_text = text.replace('\n', ' ').strip()
+    if not clean_text:
+        return None
+
+    # 1. Спробуємо локальний Neural TTS (port 8000), який дає стабільний звук
+    try:
+        import urllib.parse
+        encoded_text = urllib.parse.quote(clean_text)
+        url = f"http://127.0.0.1:8000/api/tts?text={encoded_text}&lang=ru"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+                if resp.status == 200:
+                    mp3_bytes = await resp.read()
+                    if mp3_bytes and len(mp3_bytes) > 200:
+                        proc = await asyncio.create_subprocess_exec(
+                            "ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "24000", "pipe:1",
+                            stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.DEVNULL
+                        )
+                        pcm_bytes, _ = await proc.communicate(input=mp3_bytes)
+                        if pcm_bytes:
+                            return base64.b64encode(pcm_bytes).decode("ascii")
+    except Exception as e:
+        logger.warning(f"Local Neural TTS error: {e}")
+
+    # 2. Fallback на Gemini Flash TTS
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
+        tts_prompt = f"Read the following text aloud with no modification: {clean_text}"
+        payload = {
+            "contents": [{"parts": [{"text": tts_prompt}]}],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": "Puck"
+                        }
                     }
                 }
             }
         }
-    }
-    async with aiohttp.ClientSession() as http_client:
-        async with http_client.post(url, json=payload) as resp:
-            data = await resp.json()
-            parts = data["candidates"][0]["content"]["parts"]
-            for p in parts:
-                if "inlineData" in p:
-                    return p["inlineData"]["data"]
+        async with aiohttp.ClientSession() as http_client:
+            async with http_client.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and "content" in candidates[0]:
+                        parts = candidates[0]["content"].get("parts", [])
+                        for p in parts:
+                            if "inlineData" in p:
+                                return p["inlineData"]["data"]
+    except Exception as e:
+        logger.error(f"Gemini TTS error: {e}")
+
     return None
 
 async def handle_tool_feedback(session: SessionState, candidate, tool_name, tool_result):
@@ -317,9 +355,22 @@ async def handle_ws(request):
 
 def init_app():
     app = web.Application()
-    app.router.add_get("/ws", handle_ws)
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    app.router.add_static("/", path=base_dir, show_index=True)
+
+    # WebSocket relay
+    app.router.add_get("/ws", handle_ws)
+
+    # Root → index.html
+    async def serve_index(request):
+        resp = web.FileResponse(os.path.join(base_dir, "index.html"))
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
+
+    app.router.add_get("/", serve_index)
+
+    # Static files (JS, CSS, icons, manifest, sw.js …)
+    app.router.add_static("/", path=base_dir, show_index=False)
+
     return app
 
 if __name__ == "__main__":
