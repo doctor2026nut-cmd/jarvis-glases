@@ -4,7 +4,7 @@
  * Cache Fallback для надійної роботи при нестабільному зв'язку на прогулянках.
  */
 
-const CACHE_NAME    = 'jarvis-v6';
+const CACHE_NAME    = 'jarvis-v8';
 const SHELL_ASSETS  = [
   './',
   './index.html',

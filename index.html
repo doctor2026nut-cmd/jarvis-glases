@@ -14,7 +14,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
   <title>Jarvis Glasses Assistant</title>
-  <link rel="stylesheet" href="css/style.css?v=6" />
+  <link rel="stylesheet" href="css/style.css?v=8" />
 </head>
 <body>
 <div id="app">
@@ -99,6 +99,10 @@
     <p class="state-label" id="status-label">Спит</p>
     <!-- Live speech recognition feedback -->
     <div class="live-mic-feedback" id="live-mic-feedback">🎤 Нажмите «Говорить» или «👂 Авто»</div>
+    <!-- ── VAD volume bar ── -->
+    <div class="vad-bar" id="vad-bar" title="Уровень звука микрофона">
+      <div class="vad-bar__fill" id="vad-bar-fill"></div>
+    </div>
   </section>
 
   <!-- ── Transcript ── -->
@@ -161,13 +165,8 @@
     </button>
   </section>
 
-  <!-- ── VAD volume bar ── -->
-  <div class="vad-bar" id="vad-bar">
-    <div class="vad-bar__fill" id="vad-bar-fill"></div>
-  </div>
-
 </div><!-- #app -->
 
-<script type="module" src="js/app.js?v=6"></script>
+<script type="module" src="js/app.js?v=8"></script>
 </body>
 </html>

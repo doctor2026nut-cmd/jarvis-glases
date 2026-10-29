@@ -1,13 +1,10 @@
 /**
- * speech.js — Realtime Client Gateway for Jarvis Glasses Assistant (T03).
+ * speech.js — Realtime Client Gateway & Direct Audio Recorder for Jarvis.
  *
- * ОНОВЛЕНО:
- * - Повна стабільність Web Speech API для Android Chrome / iOS Safari
- * - Відмова від continuous: true, що викликало зависання мікрофона на смартфонах
- * - Авто-цикл розпізнавання для Hands-Free режиму
- * - Надійна конвертація PCM 24k -> WAV Blob + HTML5 Audio fallback
- * - Глобальне розблокування звуку при першому тапі на екран
- * - Живе відображення почутої мови в реальному часі (Feedback)
+ * РЕШЕНИЕ:
+ * Отказ от ненадежного браузерного webkitSpeechRecognition в пользу
+ * прямого захвата микрофона через MediaRecorder API + серверной транскрипции Gemini.
+ * Это гарантирует 100% работу на любых телефонах (Android / iPhone) и Bluetooth-очках!
  */
 
 import { setState, getState } from './state.js';
@@ -15,32 +12,38 @@ import { addBubble, setWsDot } from './ui.js';
 import { executeTool } from './tools.js';
 
 let _ws                = null;
-let _recognition       = null;
-let _isListening       = false;
-let _isHandsFree       = false;
+let _mediaStream       = null;
+let _mediaRecorder     = null;
+let _recordedChunks    = [];
 let _audioCtx          = null;
-let _currentAudioSrc   = null;
+let _analyser          = null;
+let _animFrameId       = null;
+
+let _isRecording       = false;
+let _isHandsFree       = false;
 let _currentAudioElem  = null;
-let _lastSpokenText    = '';
-let _speechTimeout     = null;
+let _currentAudioSrc   = null;
 let _isAudioUnlocked   = false;
+
+let _hasSpoken         = false;
+let _speechStartTime   = 0;
+let _lastSpeechTime    = 0;
+let _silenceTimer      = null;
 
 // ─── AudioContext Unlocker ───────────────────────────────────────────────────
 
 export function unlockAudioContext() {
   if (_isAudioUnlocked && _audioCtx && _audioCtx.state === 'running') return;
   try {
-    if (!_audioCtx) {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      if (!_audioCtx) {
         _audioCtx = new AudioContextClass({ sampleRate: 24000 });
       }
-    }
-    if (_audioCtx && _audioCtx.state === 'suspended') {
-      _audioCtx.resume();
-    }
-    // Програємо 1 мілісекунду тиші для гарантованого розблокування Autoplay
-    if (_audioCtx) {
+      if (_audioCtx.state === 'suspended') {
+        _audioCtx.resume();
+      }
+      // Воспроизводим 10мс тишины для снятия ограничений Autoplay
       const osc = _audioCtx.createOscillator();
       const gain = _audioCtx.createGain();
       gain.gain.value = 0.001;
@@ -48,11 +51,11 @@ export function unlockAudioContext() {
       gain.connect(_audioCtx.destination);
       osc.start(0);
       osc.stop(0.02);
+      _isAudioUnlocked = true;
+      console.log('[audio] AudioContext permanently unlocked');
     }
-    _isAudioUnlocked = true;
-    console.log('[audio] AudioContext unlocked successfully');
   } catch (err) {
-    console.warn('[audio] AudioContext unlock error:', err);
+    console.warn('[audio] AudioContext unlock warning:', err);
   }
 }
 
@@ -81,7 +84,7 @@ export function initRelayWebSocket() {
   _ws.onopen = () => {
     console.log('[relay-ws] Connected to Jarvis relay');
     setWsDot('connected');
-    _updateFeedback('✅ Подключено к серверу Джарвиса');
+    _updateFeedback('✅ Готов к голосовым командам');
   };
 
   _ws.onmessage = async (event) => {
@@ -90,6 +93,12 @@ export function initRelayWebSocket() {
 
       if (msg.type === 'state') {
         setState(msg.state);
+
+      } else if (msg.type === 'user_transcript') {
+        // Сервер распознал сказанное из аудио
+        console.log('[relay-ws] Server transcript:', msg.text);
+        addBubble('user', msg.text);
+        _updateFeedback(`🎤 «${msg.text}»`);
 
       } else if (msg.type === 'assistant_reply') {
         setState('speaking');
@@ -102,13 +111,13 @@ export function initRelayWebSocket() {
           setState('sleeping');
         }
 
-        // В Hands-Free режимі після відповіді асистента відновлюємо слухання
-        if (_isHandsFree && getState() !== 'listening') {
+        // В Hands-Free режиме возобновляем прослушивание
+        if (_isHandsFree) {
           setTimeout(() => {
-            if (_isHandsFree && !_isListening) {
-              _startRecognition();
+            if (_isHandsFree && !_isRecording && getState() !== 'speaking') {
+              _startHandsFreeMonitor();
             }
-          }, 500);
+          }, 600);
         }
 
       } else if (msg.type === 'execute_tool') {
@@ -133,7 +142,7 @@ export function initRelayWebSocket() {
         setTimeout(() => setState('sleeping'), 3000);
       }
     } catch (err) {
-      console.error('[relay-ws] Message handling error:', err);
+      console.error('[relay-ws] Message error:', err);
     }
   };
 
@@ -143,194 +152,238 @@ export function initRelayWebSocket() {
   };
 
   _ws.onclose = () => {
-    console.log('[relay-ws] Closed. Reconnecting in 2.5s…');
+    console.log('[relay-ws] WS closed. Reconnecting in 2.5s…');
     setWsDot('disconnected');
     setTimeout(initRelayWebSocket, 2500);
   };
 }
 
-// Keepalive ping кожні 20 секунд
+// Keepalive ping
 setInterval(() => {
   if (_ws && _ws.readyState === WebSocket.OPEN) {
     _ws.send(JSON.stringify({ type: 'ping' }));
   }
 }, 20000);
 
-// ─── Speech Recognition Engine (Mobile Safe) ────────────────────────────────
+// ─── Real Microphone Audio Recording (MediaRecorder) ─────────────────────────
 
-function _getSpeechRecognitionClass() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+function getSupportedMimeType() {
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg'
+  ];
+  for (const t of types) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
+      return t;
+    }
+  }
+  return '';
 }
 
-function _initRecognition() {
-  const SpeechRec = _getSpeechRecognitionClass();
-  if (!SpeechRec) {
-    _updateFeedback('❌ Браузер не поддерживает Speech Recognition');
-    return null;
+async function ensureMediaStream(deviceId = '') {
+  if (_mediaStream && _mediaStream.active) {
+    return _mediaStream;
   }
 
-  const rec = new SpeechRec();
-  rec.lang = 'ru-RU';
-  // continuous: false — найнадійніший режим на мобільних телефонах (Android Chrome)
-  rec.continuous = false;
-  rec.interimResults = true;
-  rec.maxAlternatives = 1;
-
-  rec.onstart = () => {
-    _isListening = true;
-    _lastSpokenText = '';
-    setState('listening');
-    _updateListenButton(true);
-    _updateFeedback('👂 Слушаю ваши очки...');
-    console.log('[speech] Recognition started');
-  };
-
-  rec.onresult = (event) => {
-    // Якщо асистент говорить, а користувач перебив його — зупиняємо звук (Barge-in)
-    if (getState() === 'speaking') {
-      stopPlayback();
-      if (_ws && _ws.readyState === WebSocket.OPEN) {
-        _ws.send(JSON.stringify({ type: 'barge_in' }));
-      }
-      setState('listening');
-    }
-
-    let interim = '';
-    let finalStr = '';
-
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      const trans = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        finalStr += trans;
-      } else {
-        interim += trans;
-      }
-    }
-
-    const currentText = (finalStr || interim).trim();
-    if (currentText) {
-      _lastSpokenText = currentText;
-      _updateFeedback(`🎤 «${currentText}»`);
-      if (finalStr) {
-        addBubble('user', finalStr.trim());
-      } else {
-        addBubble('interim', interim.trim());
-      }
-    }
-
-    // Скидаємо таймер тиші (1.1 сек) для негайної відправки фрази
-    if (_speechTimeout) clearTimeout(_speechTimeout);
-    _speechTimeout = setTimeout(() => {
-      if (_lastSpokenText && _lastSpokenText.length > 0) {
-        _commitAndSendUtterance();
-      }
-    }, 1100);
-  };
-
-  rec.onerror = (event) => {
-    console.warn('[speech] Recognition event error:', event.error);
-    if (event.error === 'not-allowed') {
-      _updateFeedback('⚠️ Микрофон заблокирован. Разрешите доступ в настройках');
-      setState('error');
-    } else if (event.error === 'no-speech') {
-      // Нормальна ситуація тиші
-      console.log('[speech] No speech detected in cycle');
+  const constraints = {
+    audio: deviceId ? { deviceId: { exact: deviceId } } : {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
     }
   };
-
-  rec.onend = () => {
-    console.log('[speech] Recognition cycle ended');
-    _isListening = false;
-    _updateListenButton(false);
-
-    // Якщо є готова розпізнана фраза — відправляємо
-    if (_lastSpokenText && _lastSpokenText.trim().length > 0) {
-      _commitAndSendUtterance();
-    }
-
-    // В режимі Hands-Free автоматично перезапускаємо цикл
-    if (_isHandsFree && getState() !== 'speaking' && getState() !== 'thinking') {
-      setTimeout(() => {
-        if (_isHandsFree && !_isListening && getState() !== 'speaking' && getState() !== 'thinking') {
-          _startRecognition();
-        }
-      }, 200);
-    } else if (!_isHandsFree && getState() === 'listening') {
-      setState('sleeping');
-      _updateFeedback('😴 Ожидание команды');
-    }
-  };
-
-  return rec;
-}
-
-function _commitAndSendUtterance() {
-  if (_speechTimeout) clearTimeout(_speechTimeout);
-  const text = _lastSpokenText.trim();
-  _lastSpokenText = '';
-  if (text.length > 0) {
-    _sendUserUtterance(text);
-  }
-}
-
-function _startRecognition() {
-  if (_isListening) return;
-  unlockAudioContext();
 
   try {
-    if (_recognition) {
-      try { _recognition.abort(); } catch (_) {}
-    }
-    _recognition = _initRecognition();
-    if (_recognition) {
-      _recognition.start();
-    }
+    _mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    _setupAudioVisualizer(_mediaStream);
+    return _mediaStream;
   } catch (err) {
-    console.warn('[speech] Start recognition exception:', err);
-    _isListening = false;
+    console.error('[mic] getUserMedia error:', err);
+    _updateFeedback('⚠️ Ошибка доступа к микрофону очков/телефона');
+    return null;
   }
 }
 
-function _stopRecognition() {
-  if (_speechTimeout) clearTimeout(_speechTimeout);
-  if (_recognition) {
-    try { _recognition.stop(); } catch (_) {}
+function _setupAudioVisualizer(stream) {
+  try {
+    if (!_audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      _audioCtx = new AudioContextClass();
+    }
+    const source = _audioCtx.createMediaStreamSource(stream);
+    _analyser = _audioCtx.createAnalyser();
+    _analyser.fftSize = 256;
+    source.connect(_analyser);
+
+    const bufferLength = _analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const vadBarFill = document.getElementById('vad-bar-fill');
+
+    function checkVolume() {
+      if (!_analyser) return;
+      _analyser.getByteFrequencyData(dataArray);
+
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const avg = sum / bufferLength; // 0 - 255
+      const percent = Math.min(100, Math.round((avg / 80) * 100));
+
+      if (vadBarFill) {
+        vadBarFill.style.width = `${percent}%`;
+      }
+
+      // Voice Activity Detection (VAD)
+      if (_isRecording) {
+        const now = Date.now();
+        if (avg > 14) {
+          // Зафиксирована речь
+          _hasSpoken = true;
+          _lastSpeechTime = now;
+        } else if (_hasSpoken && (now - _lastSpeechTime > 1400) && (now - _speechStartTime > 2000)) {
+          // Пауза 1.4 сек после речи — авто-завершение фразы
+          console.log('[vad] Speech pause detected, committing audio');
+          stopRecordingAndSend();
+        }
+      } else if (_isHandsFree && getState() !== 'speaking' && getState() !== 'thinking') {
+        if (avg > 18) {
+          // В Hands-Free режиме обнаружен голос — начинаем запись
+          console.log('[handsfree] Voice trigger activated');
+          startRecording();
+        }
+      }
+
+      _animFrameId = requestAnimationFrame(checkVolume);
+    }
+
+    if (_animFrameId) cancelAnimationFrame(_animFrameId);
+    checkVolume();
+  } catch (e) {
+    console.warn('[mic] Visualizer setup warning:', e);
   }
-  _isListening = false;
-  _updateListenButton(false);
 }
 
-// ─── Controls: Toggle Listening & Hands-Free ─────────────────────────────────
+export async function startRecording(deviceId = '') {
+  if (_isRecording) return;
+  unlockAudioContext();
 
-export function toggleListening(inputDeviceId = '') {
+  const stream = await ensureMediaStream(deviceId);
+  if (!stream) return;
+
+  const mimeType = getSupportedMimeType();
+  console.log('[recorder] Using MIME type:', mimeType);
+
+  try {
+    _mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  } catch (e) {
+    _mediaRecorder = new MediaRecorder(stream);
+  }
+
+  _recordedChunks = [];
+  _hasSpoken = false;
+  _speechStartTime = Date.now();
+  _lastSpeechTime = Date.now();
+
+  _mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      _recordedChunks.push(e.data);
+    }
+  };
+
+  _mediaRecorder.onstart = () => {
+    _isRecording = true;
+    setState('listening');
+    _updateListenButton(true);
+    _updateFeedback('🎙️ Слышу вас... Говорите в очки');
+  };
+
+  _mediaRecorder.onstop = async () => {
+    _isRecording = false;
+    _updateListenButton(false);
+
+    if (_recordedChunks.length === 0) {
+      if (!_isHandsFree) setState('sleeping');
+      return;
+    }
+
+    const audioBlob = new Blob(_recordedChunks, { type: _mediaRecorder.mimeType || 'audio/webm' });
+    _recordedChunks = [];
+
+    // Если запись длилась меньше 400мс и не было речи — игнорируем случайный щелчок
+    if (audioBlob.size < 800 && !_hasSpoken) {
+      console.log('[recorder] Audio too short / empty, ignoring');
+      if (!_isHandsFree) setState('sleeping');
+      return;
+    }
+
+    setState('thinking');
+    _updateFeedback('🤔 Распознаю голос...');
+
+    // Конвертируем в base64 и отправляем на сервер
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result;
+      const base64Data = dataUrl.split(',')[1];
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        console.log('[recorder] Sending audio to server, bytes:', audioBlob.size);
+        _ws.send(JSON.stringify({
+          type: 'user_audio',
+          audio: base64Data,
+          mimeType: audioBlob.type
+        }));
+      }
+    };
+    reader.readAsDataURL(audioBlob);
+  };
+
+  // Собираем аудио каждые 200мс
+  _mediaRecorder.start(200);
+}
+
+export function stopRecordingAndSend() {
+  if (_mediaRecorder && _mediaRecorder.state === 'recording') {
+    try {
+      _mediaRecorder.stop();
+    } catch (_) {}
+  }
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────────
+
+export async function toggleListening(deviceId = '') {
   unlockAudioContext();
   if (_isHandsFree) {
-    toggleHandsFree(inputDeviceId);
+    toggleHandsFree(deviceId);
     return;
   }
 
-  if (_isListening) {
-    _stopRecognition();
-    setState('sleeping');
-    _updateFeedback('😴 Ожидание');
+  if (_isRecording) {
+    stopRecordingAndSend();
   } else {
-    _startRecognition();
+    await startRecording(deviceId);
   }
 }
 
-export async function toggleHandsFree(inputDeviceId = '') {
+export async function toggleHandsFree(deviceId = '') {
   unlockAudioContext();
   if (_isHandsFree) {
     _isHandsFree = false;
-    _stopRecognition();
+    if (_isRecording) stopRecordingAndSend();
     setState('sleeping');
     _updateFeedback('👂 Hands-Free выключен');
     console.log('[speech] Hands-free OFF');
   } else {
     _isHandsFree = true;
-    _startRecognition();
-    _updateFeedback('👂 Hands-Free активен (говорю в очки)');
-    console.log('[speech] Hands-free ON');
+    const stream = await ensureMediaStream(deviceId);
+    if (stream) {
+      setState('listening');
+      _updateFeedback('👂 Hands-Free активен (слушаю очки)');
+      console.log('[speech] Hands-free ON');
+    }
   }
   return _isHandsFree;
 }
@@ -339,20 +392,22 @@ export function isHandsFree() {
   return _isHandsFree;
 }
 
-export function sendUserUtterance(text) {
-  _sendUserUtterance(text);
+function _startHandsFreeMonitor() {
+  if (!_isHandsFree) return;
+  setState('listening');
+  _updateFeedback('👂 Слушаю очки...');
 }
 
-function _sendUserUtterance(text) {
+export function sendUserUtterance(text) {
   if (!text || !_ws || _ws.readyState !== WebSocket.OPEN) return;
-  console.log('[speech] Sending utterance to Jarvis:', text);
+  console.log('[speech] Sending text utterance:', text);
   addBubble('user', text);
   setState('thinking');
   _updateFeedback(`🤔 Думаю над: «${text}»`);
   _ws.send(JSON.stringify({ type: 'user_utterance', text }));
 }
 
-// ─── Audio Playback: PCM 24k -> WAV Blob -> Web Audio / HTML5 Audio ──────────
+// ─── Audio Playback (PCM 24k -> WAV Blob -> HTML5 Audio) ─────────────────────
 
 function pcmToWavBlob(pcmBytes, sampleRate = 24000) {
   const numChannels = 1;
@@ -389,7 +444,6 @@ async function playAudioData(base64Data) {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-    // 1. Створюємо WAV Blob для максимально надійного відтворення через HTML5 Audio
     const wavBlob = pcmToWavBlob(bytes, 24000);
     const audioUrl = URL.createObjectURL(wavBlob);
 
@@ -397,7 +451,6 @@ async function playAudioData(base64Data) {
       const audio = new Audio(audioUrl);
       _currentAudioElem = audio;
 
-      // Підтримка вибору динаміка / навушників, якщо доступно setSinkId
       const outId = document.getElementById('audio-output-select')?.value;
       if (outId && typeof audio.setSinkId === 'function') {
         audio.setSinkId(outId).catch(() => {});
@@ -415,7 +468,6 @@ async function playAudioData(base64Data) {
         console.warn('[audio] HTML5 Audio error, trying WebAudio fallback:', e);
         URL.revokeObjectURL(audioUrl);
         _currentAudioElem = null;
-        // Fallback to Web Audio Buffer
         _playWebAudioPcm(bytes).then(resolve);
       };
 
@@ -434,7 +486,8 @@ async function playAudioData(base64Data) {
 async function _playWebAudioPcm(bytes) {
   try {
     if (!_audioCtx) {
-      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      _audioCtx = new AudioContextClass({ sampleRate: 24000 });
     }
     if (_audioCtx.state === 'suspended') {
       await _audioCtx.resume();

@@ -124,7 +124,7 @@ class SessionState:
 async def generate_gemini_reply(user_text, session: SessionState):
     session.history.append({"role": "user", "parts": [{"text": user_text}]})
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "systemInstruction": {
@@ -144,19 +144,35 @@ async def generate_gemini_reply(user_text, session: SessionState):
             if "error" in data:
                 raise RuntimeError(data["error"].get("message", "Gemini error"))
 
-            candidate = data["candidates"][0]["content"]
-            first_part = candidate["parts"][0]
+            candidates = data.get("candidates", [])
+            if not candidates:
+                logger.warning(f"No candidates from Gemini: {data}")
+                return {"type": "text", "text": "Я вас слушаю, Роман."}
 
-            if "functionCall" in first_part:
-                fc = first_part["functionCall"]
-                return {
-                    "type": "tool_call",
-                    "name": fc["name"],
-                    "args": fc.get("args", {}),
-                    "candidate": candidate
-                }
+            candidate = candidates[0].get("content", {})
+            parts = candidate.get("parts", [])
+            if not parts:
+                logger.warning(f"Empty parts in Gemini candidate: {data}")
+                return {"type": "text", "text": "Слушаю вас."}
 
-            text_reply = first_part.get("text", "")
+            # Check if any part is a function call
+            for part in parts:
+                if "functionCall" in part:
+                    fc = part["functionCall"]
+                    return {
+                        "type": "tool_call",
+                        "name": fc["name"],
+                        "args": fc.get("args", {}),
+                        "candidate": candidate
+                    }
+
+            # Extract text (skip internal thoughts if present)
+            text_reply = ""
+            for part in parts:
+                if "text" in part and not part.get("thought", False):
+                    text_reply += part["text"] + " "
+            text_reply = text_reply.strip() or "Слушаю вас."
+
             session.history.append({"role": "model", "parts": [{"text": text_reply}]})
             return {"type": "text", "text": text_reply}
 
@@ -224,6 +240,107 @@ async def generate_tts_audio(text):
 
     return None
 
+async def convert_audio_to_wav(audio_bytes):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-i", "pipe:0", "-f", "wav", "-ac", "1", "-ar", "16000", "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        wav_bytes, _ = await proc.communicate(input=audio_bytes)
+        return wav_bytes
+    except Exception as e:
+        logger.error(f"Error converting audio to wav: {e}")
+        return None
+
+async def transcribe_audio(wav_b64):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"inlineData": {"mimeType": "audio/wav", "data": wav_b64}},
+                {"text": "Точно транскрибируй аудио на русском или украинском языке. Выведи только транскрипцию без лишних слов и кавычек."}
+            ]
+        }],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 200
+        }
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=25)) as resp:
+                data = await resp.json()
+                candidates = data.get("candidates", [])
+                if candidates and "content" in candidates[0]:
+                    parts = candidates[0]["content"].get("parts", [])
+                    if parts:
+                        text = parts[0].get("text", "").strip()
+                        # Очищаем от возможных артефактов
+                        if text.lower().startswith("в аудио сказано:"):
+                            text = text.split(":", 1)[1].strip()
+                        return text.strip('"\'')
+    except Exception as e:
+        logger.error(f"Transcription error: {repr(e)}")
+    return ""
+
+async def process_utterance(user_text, session: SessionState, session_id: str, ws: web.WebSocketResponse):
+    session.reset_interrupt()
+    logger.info(f"[{session_id}] Processing user text: {user_text}")
+    await ws.send_json({"type": "state", "state": "thinking"})
+
+    try:
+        res = await generate_gemini_reply(user_text, session)
+
+        if session.is_interrupted:
+            logger.info(f"[{session_id}] Interrupted during inference")
+            return
+
+        if res["type"] == "tool_call":
+            tool_name = res["name"]
+            tool_args = res["args"]
+            logger.info(f"[{session_id}] Dispatching tool: {tool_name}")
+
+            # Handle server-side agent delegation directly
+            if tool_name == "delegate_to_agent":
+                agent_res = await agent_bridge.execute_agent_command(
+                    tool_args.get("agent", ""),
+                    tool_args.get("instruction", "")
+                )
+                reply_text = await handle_tool_feedback(session, res["candidate"], tool_name, agent_res)
+                logger.info(f"[{session_id}] Jarvis post-agent reply: {reply_text}")
+                pcm_b64 = await generate_tts_audio(reply_text)
+                if not session.is_interrupted:
+                    await ws.send_json({
+                        "type": "assistant_reply",
+                        "text": reply_text,
+                        "audio_pcm24k": pcm_b64
+                    })
+            else:
+                # Client-side device tools (battery, sensors)
+                await ws.send_json({
+                    "type": "execute_tool",
+                    "name": tool_name,
+                    "args": tool_args,
+                    "candidate": res["candidate"]
+                })
+        else:
+            reply_text = res["text"]
+            logger.info(f"[{session_id}] Jarvis reply: {reply_text}")
+            pcm_b64 = await generate_tts_audio(reply_text)
+
+            if not session.is_interrupted:
+                await ws.send_json({
+                    "type": "assistant_reply",
+                    "text": reply_text,
+                    "audio_pcm24k": pcm_b64
+                })
+    except Exception as err:
+        logger.error(f"[{session_id}] Inference error: {err}")
+        await ws.send_json({"type": "error", "message": str(err)})
+
 async def handle_tool_feedback(session: SessionState, candidate, tool_name, tool_result):
     session.history.append(candidate)
     session.history.append({
@@ -236,7 +353,7 @@ async def handle_tool_feedback(session: SessionState, candidate, tool_name, tool
         }]
     })
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
         "contents": session.history,
@@ -246,7 +363,14 @@ async def handle_tool_feedback(session: SessionState, candidate, tool_name, tool
     async with aiohttp.ClientSession() as http_client:
         async with http_client.post(url, json=payload) as resp:
             data = await resp.json()
-            text_reply = data["candidates"][0]["content"]["parts"][0].get("text", "")
+            candidates = data.get("candidates", [])
+            text_reply = ""
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for p in parts:
+                    if "text" in p and not p.get("thought", False):
+                        text_reply += p["text"] + " "
+            text_reply = text_reply.strip() or "Готово."
             session.history.append({"role": "model", "parts": [{"text": text_reply}]})
             return text_reply
 
@@ -271,60 +395,42 @@ async def handle_ws(request):
                     user_text = data.get("text", "").strip()
                     if not user_text:
                         continue
+                    await process_utterance(user_text, session, session_id, ws)
+
+                elif evt == "user_audio":
+                    raw_b64 = data.get("audio", "")
+                    if not raw_b64:
+                        continue
 
                     session.reset_interrupt()
-                    logger.info(f"[{session_id}] User said: {user_text}")
+                    logger.info(f"[{session_id}] Received user audio stream ({len(raw_b64)} chars), processing...")
                     await ws.send_json({"type": "state", "state": "thinking"})
 
                     try:
-                        res = await generate_gemini_reply(user_text, session)
-
-                        if session.is_interrupted:
-                            logger.info(f"[{session_id}] Interrupted during inference")
+                        audio_bytes = base64.b64decode(raw_b64)
+                        wav_bytes = await convert_audio_to_wav(audio_bytes)
+                        if not wav_bytes:
+                            logger.warning(f"[{session_id}] Audio conversion failed")
+                            await ws.send_json({"type": "state", "state": "sleeping"})
                             continue
 
-                        if res["type"] == "tool_call":
-                            tool_name = res["name"]
-                            tool_args = res["args"]
-                            logger.info(f"[{session_id}] Dispatching tool: {tool_name}")
+                        wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
+                        user_text = await transcribe_audio(wav_b64)
+                        logger.info(f"[{session_id}] Audio transcribed: '{user_text}'")
 
-                            # Handle server-side agent delegation directly
-                            if tool_name == "delegate_to_agent":
-                                agent_res = await agent_bridge.execute_agent_command(
-                                    tool_args.get("agent", ""),
-                                    tool_args.get("instruction", "")
-                                )
-                                reply_text = await handle_tool_feedback(session, res["candidate"], tool_name, agent_res)
-                                logger.info(f"[{session_id}] Jarvis post-agent reply: {reply_text}")
-                                pcm_b64 = await generate_tts_audio(reply_text)
-                                if not session.is_interrupted:
-                                    await ws.send_json({
-                                        "type": "assistant_reply",
-                                        "text": reply_text,
-                                        "audio_pcm24k": pcm_b64
-                                    })
-                            else:
-                                # Client-side device tools (battery, sensors)
-                                await ws.send_json({
-                                    "type": "execute_tool",
-                                    "name": tool_name,
-                                    "args": tool_args,
-                                    "candidate": res["candidate"]
-                                })
-                        else:
-                            reply_text = res["text"]
-                            logger.info(f"[{session_id}] Jarvis reply: {reply_text}")
-                            pcm_b64 = await generate_tts_audio(reply_text)
+                        if not user_text:
+                            logger.info(f"[{session_id}] Inaudible audio or silence")
+                            await ws.send_json({"type": "state", "state": "sleeping"})
+                            continue
 
-                            if not session.is_interrupted:
-                                await ws.send_json({
-                                    "type": "assistant_reply",
-                                    "text": reply_text,
-                                    "audio_pcm24k": pcm_b64
-                                })
-                    except Exception as err:
-                        logger.error(f"[{session_id}] Inference error: {err}")
-                        await ws.send_json({"type": "error", "message": str(err)})
+                        # Send recognized text back so client renders bubble
+                        await ws.send_json({"type": "user_transcript", "text": user_text})
+
+                        # Process utterance through agent / gemini / tts
+                        await process_utterance(user_text, session, session_id, ws)
+                    except Exception as e:
+                        logger.error(f"[{session_id}] user_audio error: {e}")
+                        await ws.send_json({"type": "state", "state": "sleeping"})
 
                 elif evt == "tool_response":
                     tool_name = data.get("name")
