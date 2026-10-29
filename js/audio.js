@@ -1,6 +1,6 @@
 /**
  * audio.js — Enumerate and select audio input/output devices.
- * ОНОВЛЕНО: Додано експорт getSelectedInputId для VAD.
+ * Safe non-blocking device detection for mobile browsers.
  */
 
 const inputSelect  = () => document.getElementById('audio-input-select');
@@ -13,29 +13,47 @@ export function getSelectedInputId()  { return _selectedInputId; }
 export function getSelectedOutputId() { return _selectedOutputId; }
 
 /**
- * Request microphone permission and populate device lists.
+ * Enumerate available audio devices safely without blocking permission dialogs.
  */
 export async function initAudioDevices() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach(t => t.stop());
-
-    await refreshDeviceList();
-    navigator.mediaDevices.addEventListener('devicechange', refreshDeviceList);
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      await refreshDeviceList();
+      try {
+        navigator.mediaDevices.addEventListener('devicechange', refreshDeviceList);
+      } catch (_) {}
+    }
   } catch (err) {
-    console.error('[audio] Microphone permission denied:', err);
-    setFallbackOption(inputSelect(),  'Нет доступа к микрофону');
-    setFallbackOption(outputSelect(), 'Нет доступа');
+    console.warn('[audio] Non-critical device enumeration warning:', err);
   }
 }
 
-async function refreshDeviceList() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const inputs  = devices.filter(d => d.kind === 'audioinput');
-  const outputs = devices.filter(d => d.kind === 'audiooutput');
+export async function requestMicPermission() {
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+      await refreshDeviceList();
+      return true;
+    }
+  } catch (err) {
+    console.warn('[audio] Microphone permission request failed:', err);
+    return false;
+  }
+  return false;
+}
 
-  populateSelect(inputSelect(),  inputs,  _selectedInputId,  id => { _selectedInputId  = id; });
-  populateSelect(outputSelect(), outputs, _selectedOutputId, id => { _selectedOutputId = id; });
+async function refreshDeviceList() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs  = devices.filter(d => d.kind === 'audioinput');
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+
+    populateSelect(inputSelect(),  inputs,  _selectedInputId,  id => { _selectedInputId  = id; });
+    populateSelect(outputSelect(), outputs, _selectedOutputId, id => { _selectedOutputId = id; });
+  } catch (err) {
+    console.warn('[audio] refreshDeviceList error:', err);
+  }
 }
 
 function populateSelect(select, devices, currentId, onChange) {
@@ -43,7 +61,7 @@ function populateSelect(select, devices, currentId, onChange) {
   select.innerHTML = '';
 
   if (devices.length === 0) {
-    setFallbackOption(select, 'Не найдено');
+    setFallbackOption(select, 'По умолчанию');
     return;
   }
 
@@ -55,12 +73,10 @@ function populateSelect(select, devices, currentId, onChange) {
     select.appendChild(opt);
   });
 
-  // Default: first device
   if (!currentId && select.options.length) {
     onChange(select.options[0].value);
   }
 
-  // Persit on change
   select.addEventListener('change', (e) => onChange(e.target.value));
 }
 

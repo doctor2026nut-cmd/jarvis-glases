@@ -74,12 +74,18 @@ body {
   flex-shrink: 0;
   background: linear-gradient(180deg, var(--bg) 0%, transparent 100%);
 }
-.header__left, .header__right {
+.header__left {
   width: 40px;
   display: flex;
   align-items: center;
 }
-.header__right { justify-content: flex-end; }
+.header__right {
+  min-width: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .header__center {
   display: flex;
   flex-direction: column;
