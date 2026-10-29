@@ -2,61 +2,161 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+
+  <!-- PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Jarvis" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>Jarvis — Voice Assistant</title>
+  <meta name="theme-color" content="#0a0e17" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+  <title>Jarvis</title>
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
 </head>
 <body>
-  <div id="app">
+<div id="app">
 
-    <!-- Header -->
-    <header class="header">
-      <h1 class="header__title">J.A.R.V.I.S.</h1>
-      <p class="header__subtitle">Glasses Assistant</p>
-    </header>
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header__left">
+      <div class="ws-dot" id="ws-dot" title="Подключение"></div>
+    </div>
+    <div class="header__center">
+      <span class="header__title">J.A.R.V.I.S.</span>
+      <span class="header__sub">Glasses Assistant</span>
+    </div>
+    <div class="header__right">
+      <button class="icon-btn" id="clear-btn" title="Очистить чат">🗑️</button>
+    </div>
+  </header>
+    <!-- Settings Button in Header -->
+    <div style="position: absolute; top: 16px; right: 16px;">
+      <button id="open-settings-btn" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer;" title="Настройка кнопок очков">⚙️</button>
+    </div>
 
-    <!-- Status indicator -->
-    <section class="status" id="status-section">
-      <div class="status__orb" id="status-orb"></div>
-      <p class="status__label" id="status-label">Спит</p>
-    </section>
+    <!-- Gestures / Buttons Settings Modal -->
+    <div id="settings-modal" class="modal" style="display: none;">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>⚙️ Настройка сенсоров очков</h2>
+          <button id="close-settings-btn" class="modal__close">&times;</button>
+        </div>
+        <div class="modal__tabs">
+          <button class="tab-btn tab-btn--active" data-tab="left-tab">Левая дужка</button>
+          <button class="tab-btn" data-tab="right-tab">Правая дужка</button>
+        </div>
 
-    <!-- Transcript area -->
-    <section class="transcript" id="transcript-section">
-      <div class="transcript__scroll" id="transcript-scroll">
-        <p class="transcript__placeholder">Нажмите кнопку, чтобы начать</p>
+        <div id="left-tab" class="tab-content tab-content--active">
+          <div class="setting-row">
+            <label>1 клик (Single):</label>
+            <select id="sel-left_single" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>2 клика (Double):</label>
+            <select id="sel-left_double" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>3 клика (Triple):</label>
+            <select id="sel-left_triple" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>Удержание (Long):</label>
+            <select id="sel-left_long" class="gesture-select"></select>
+          </div>
+        </div>
+
+        <div id="right-tab" class="tab-content">
+          <div class="setting-row">
+            <label>1 клик (Single):</label>
+            <select id="sel-right_single" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>2 клика (Double):</label>
+            <select id="sel-right_double" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>3 клика (Triple):</label>
+            <select id="sel-right_triple" class="gesture-select"></select>
+          </div>
+          <div class="setting-row">
+            <label>Удержание (Long):</label>
+            <select id="sel-right_long" class="gesture-select"></select>
+          </div>
+        </div>
+
+        <button id="save-settings-btn" class="modal__save-btn">💾 Сохранить раскладку</button>
       </div>
-    </section>
+    </div>
 
-    <!-- Controls -->
-    <section class="controls">
-      <!-- Audio device selector -->
-      <div class="controls__device">
-        <label for="audio-input-select" class="controls__device-label">🎤 Микрофон</label>
-        <select id="audio-input-select" class="controls__select">
-          <option value="">Загрузка…</option>
-        </select>
+
+  <!-- ── Orb + status ── -->
+  <section class="orb-section">
+    <div class="orb-wrap">
+      <div class="orb-ring" id="orb-ring"></div>
+      <div class="orb" id="status-orb">
+        <span class="orb-emoji" id="orb-emoji">😴</span>
       </div>
+    </div>
+    <p class="state-label" id="status-label">Спит</p>
+  </section>
 
-      <!-- Main listen button -->
-      <button class="controls__listen-btn" id="listen-btn" aria-label="Слушать">
-        <span class="controls__listen-icon" id="listen-icon">🎙️</span>
-      </button>
-
-      <!-- Audio output selector -->
-      <div class="controls__device">
-        <label for="audio-output-select" class="controls__device-label">🔊 Динамик</label>
-        <select id="audio-output-select" class="controls__select">
-          <option value="">Загрузка…</option>
-        </select>
+  <!-- ── Transcript ── -->
+  <section class="chat" id="chat">
+    <div class="chat__inner" id="transcript-scroll">
+      <div class="chat__hint" id="chat-hint">
+        <p>👋 Нажмите <strong>👂 Авто</strong> — говорите в очки,<br>Джарвис ответит голосом</p>
       </div>
-    </section>
+    </div>
+  </section>
 
+  <!-- ── Devices row (collapsible) ── -->
+  <div class="devices-row" id="devices-row">
+    <div class="device-item">
+      <span class="device-icon">🎤</span>
+      <select id="audio-input-select" class="device-select">
+        <option value="">Загрузка…</option>
+      </select>
+    </div>
+    <div class="device-sep"></div>
+    <div class="device-item">
+      <span class="device-icon">🔊</span>
+      <select id="audio-output-select" class="device-select">
+        <option value="">Загрузка…</option>
+      </select>
+    </div>
   </div>
 
-  <script type="module" src="js/app.js"></script>
+  <!-- ── Controls ── -->
+  <section class="controls">
+    <!-- Hands-Free (VAD) -->
+    <button class="ctrl-btn ctrl-btn--hf" id="hands-free-btn" data-active="false">
+      <span class="ctrl-btn__icon">👂</span>
+      <span class="ctrl-btn__label">Авто</span>
+    </button>
+
+    <!-- Big mic -->
+    <button class="ctrl-btn ctrl-btn--mic" id="listen-btn" data-active="false">
+      <span class="ctrl-btn__icon" id="listen-icon">🎙️</span>
+      <span class="ctrl-btn__label">Говорить</span>
+    </button>
+
+    <!-- Settings / devices toggle -->
+    <button class="ctrl-btn ctrl-btn--settings" id="settings-btn" data-active="false">
+      <span class="ctrl-btn__icon">⚙️</span>
+      <span class="ctrl-btn__label">Устр.</span>
+    </button>
+  </section>
+
+  <!-- ── VAD volume bar ── -->
+  <div class="vad-bar" id="vad-bar">
+    <div class="vad-bar__fill" id="vad-bar-fill"></div>
+  </div>
+
+</div><!-- #app -->
+
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
