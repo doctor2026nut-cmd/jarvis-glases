@@ -178,9 +178,46 @@ function boot() {
   setupMediaSession();
   initAudioDevices().catch(() => {});
 
-  // 7. Реєстрація Service Worker (PWA)
+  // 7. PWA Installation Handler
+  let deferredPrompt = null;
+  const installBtn = document.getElementById('install-pwa-btn');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    if (installBtn) {
+      installBtn.style.display = 'flex';
+      installBtn.classList.add('pwa-badge-btn');
+    }
+  });
+
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('[pwa] Install outcome:', outcome);
+        deferredPrompt = null;
+        installBtn.style.display = 'none';
+      } else {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          alert('📲 Установка Jarvis на iPhone:\n1. Нажмите иконку «Поделиться» (квадрат со стрелкой внизу браузера Safari)\n2. Выберите «На экран «Домой» (Add to Home Screen)');
+        } else {
+          alert('📲 Установка Jarvis на Android:\nНажмите меню браузера (три точки ⋮ вверху) и выберите «Установить приложение» или «Добавить на главный экран».');
+        }
+      }
+    });
+  }
+
+  window.addEventListener('appinstalled', () => {
+    console.log('[pwa] Jarvis App was installed successfully');
+    if (installBtn) installBtn.style.display = 'none';
+  });
+
+  // 8. Реєстрація Service Worker (PWA v9)
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js?v=6').then(reg => {
+    navigator.serviceWorker.register('sw.js?v=9').then(reg => {
       console.log('[jarvis] Service Worker active');
       reg.update();
     }).catch(err => {

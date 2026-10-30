@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#0b172a" />
+      <stop offset="60%" stop-color="#040711" />
+      <stop offset="100%" stop-color="#010307" />
+    </radialGradient>
+
+    <!-- Core Cyan Glow -->
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="25%" stop-color="#00f0ff" />
+      <stop offset="60%" stop-color="#0284c7" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#00f0ff" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Reactor Ring Gradient -->
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#00e5ff" />
+    </linearGradient>
+
+    <!-- Gold Accent Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+
+    <!-- Hologram Glow Filter -->
+    <filter id="neonGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Base (Squircle maskable safe) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGlow)" />
+  <rect width="508" height="508" x="2" y="2" rx="110" fill="none" stroke="rgba(0, 240, 255, 0.15)" stroke-width="2" />
+
+  <!-- Outer HUD Circular Grid -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="rgba(0, 240, 255, 0.08)" stroke-width="1" stroke-dasharray="4 8" />
+  <circle cx="256" cy="256" r="185" fill="none" stroke="rgba(99, 102, 241, 0.15)" stroke-width="1.5" />
+
+  <!-- Segmented Reactor Ring (12 Segments) -->
+  <g filter="url(#subtleGlow)">
+    <!-- 8 Segments around perimeter -->
+    <path d="M 256 75 A 181 181 0 0 1 384 128" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 410 162 A 181 181 0 0 1 437 256" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 437 256 A 181 181 0 0 1 384 384" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 384 384 A 181 181 0 0 1 256 437" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 256 437 A 181 181 0 0 1 128 384" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 128 384 A 181 181 0 0 1 75 256" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 75 256 A 181 181 0 0 1 128 128" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+    <path d="M 128 128 A 181 181 0 0 1 256 75" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" />
+  </g>
+
+  <!-- Geometric HUD Brackets -->
+  <g stroke="#00f0ff" stroke-width="2" fill="none" opacity="0.6">
+    <!-- Top-Left -->
+    <path d="M 90 120 L 90 90 L 120 90" />
+    <!-- Top-Right -->
+    <path d="M 422 120 L 422 90 L 392 90" />
+    <!-- Bottom-Left -->
+    <path d="M 90 392 L 90 422 L 120 422" />
+    <!-- Bottom-Right -->
+    <path d="M 422 392 L 422 422 L 392 422" />
+  </g>
+
+  <!-- Arc Reactor Inner Notches -->
+  <g stroke="rgba(0, 240, 255, 0.4)" stroke-width="3" stroke-linecap="round">
+    <line x1="256" y1="92" x2="256" y2="108" />
+    <line x1="256" y1="404" x2="256" y2="420" />
+    <line x1="92" y1="256" x2="108" y2="256" />
+    <line x1="404" y1="256" x2="420" y2="256" />
+    <line x1="140" y1="140" x2="152" y2="152" />
+    <line x1="372" y1="140" x2="360" y2="152" />
+    <line x1="140" y1="372" x2="152" y2="360" />
+    <line x1="372" y1="372" x2="360" y2="360" />
+  </g>
+
+  <!-- Intermediate Glowing Ring with Hexagons -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#6366f1" stroke-width="2" opacity="0.4" />
+  <polygon points="256,126 368,191 368,321 256,386 144,321 144,191" fill="none" stroke="rgba(0, 240, 255, 0.3)" stroke-width="1.5" />
+
+  <!-- Core Reactor Ambient Glow -->
+  <circle cx="256" cy="256" r="105" fill="url(#coreGlow)" />
+
+  <!-- Futuristic Smart Glasses Silhouette (Integrated in Center) -->
+  <g filter="url(#neonGlow)" stroke="#00f0ff" stroke-width="4.5" fill="rgba(0, 240, 255, 0.12)" stroke-linejoin="round">
+    <!-- Left Lens Rim -->
+    <path d="M 160 236 C 160 215, 175 205, 205 205 C 235 205, 245 220, 245 245 C 245 272, 230 292, 202 292 C 172 292, 160 268, 160 236 Z" />
+    <!-- Right Lens Rim -->
+    <path d="M 352 236 C 352 215, 337 205, 307 205 C 277 205, 267 220, 267 245 C 267 272, 282 292, 310 292 C 340 292, 352 268, 352 236 Z" />
+    <!-- Glasses Bridge -->
+    <path d="M 245 228 C 251 223, 261 223, 267 228" fill="none" stroke-width="5" />
+    <!-- Left Temple Joint -->
+    <path d="M 160 220 L 130 212" fill="none" stroke-width="4" stroke-linecap="round" />
+    <!-- Right Temple Joint -->
+    <path d="M 352 220 L 382 212" fill="none" stroke-width="4" stroke-linecap="round" />
+  </g>
+
+  <!-- Holographic Wave Lines in Lenses -->
+  <g stroke="rgba(255, 255, 255, 0.7)" stroke-width="1.5" fill="none">
+    <path d="M 178 245 Q 202 235 228 245" />
+    <path d="M 284 245 Q 310 235 334 245" />
+  </g>
+
+  <!-- Central Quantum Pulse Dot -->
+  <circle cx="256" cy="256" r="8" fill="#ffffff" filter="url(#neonGlow)" />
+  <circle cx="256" cy="256" r="3" fill="#00f0ff" />
+
+  <!-- Typography / Brand Marking (Futuristic Monospace) -->
+  <text x="256" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace" font-size="20" font-weight="900" letter-spacing="8" fill="#00f0ff" text-anchor="middle" filter="url(#subtleGlow)">J.A.R.V.I.S.</text>
+  <text x="256" y="368" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace" font-size="9" font-weight="600" letter-spacing="3" fill="rgba(255, 255, 255, 0.45)" text-anchor="middle">VOICE HUD // AI CORE</text>
+</svg>

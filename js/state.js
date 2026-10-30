@@ -7,11 +7,11 @@
 const VALID_STATES = ['sleeping', 'listening', 'thinking', 'speaking', 'error'];
 
 const STATE_LABELS = {
-  sleeping:  'Спит',
-  listening: 'Слушает…',
-  thinking:  'Думает…',
-  speaking:  'Говорит…',
-  error:     'Ошибка',
+  sleeping:  'STANDBY // ОЖИДАНИЕ',
+  listening: 'VOICE CAPTURE // СЛУШАЮ',
+  thinking:  'QUANTUM CORE // АНАЛИЗ',
+  speaking:  'AUDIO TRANSMIT // ОТВЕТ',
+  error:     'SYSTEM ALERT // ОШИБКА',
 };
 
 let _currentState = 'sleeping';

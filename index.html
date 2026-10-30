@@ -4,37 +4,53 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
 
-  <!-- PWA -->
+  <!-- PWA Meta -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Jarvis" />
+  <meta name="apple-mobile-web-app-title" content="JARVIS" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#0a0e17" />
-  <link rel="manifest" href="manifest.json?v=5" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#040711" />
+  <meta name="application-name" content="JARVIS" />
+  <link rel="manifest" href="manifest.json?v=9" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=9" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=9" />
 
-  <title>Jarvis Glasses Assistant</title>
-  <link rel="stylesheet" href="css/style.css?v=8" />
+  <title>J.A.R.V.I.S. — Voice HUD</title>
+  <link rel="stylesheet" href="css/style.css?v=9" />
 </head>
 <body>
 <div id="app">
 
+  <!-- ── Cyberpunk Ambient Grid Lines ── -->
+  <div class="hud-bg-grid"></div>
+
   <!-- ── Header ── -->
   <header class="header">
     <div class="header__left">
-      <div class="ws-dot" id="ws-dot" title="Подключение"></div>
+      <div class="ws-dot" id="ws-dot" title="Сетевое подключение"></div>
+      <span class="hud-status-text" id="hud-status-text">ONLINE</span>
     </div>
     <div class="header__center">
       <span class="header__title">J.A.R.V.I.S.</span>
-      <span class="header__sub">Glasses Voice Assistant</span>
+      <span class="header__sub">NEURAL GLASSES INTERFACE</span>
     </div>
     <div class="header__right">
+      <button class="icon-btn pwa-badge-btn" id="install-pwa-btn" title="Установить приложение на телефон">📲</button>
       <button class="icon-btn" id="open-settings-btn" title="Настройка кнопок очков">⚙️</button>
       <button class="icon-btn" id="clear-btn" title="Очистить чат">🗑️</button>
     </div>
   </header>
 
-  <!-- Gestures / Buttons Settings Modal -->
+  <!-- ── Telemetry HUD Row ── -->
+  <div class="hud-telemetry">
+    <div class="hud-item"><span class="hud-tag">CORE</span><span class="hud-val">MK-IV</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-item"><span class="hud-tag">EC2 AGENT</span><span class="hud-val hud-val--accent">OPENCLAW</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-item"><span class="hud-tag">STREAM</span><span class="hud-val">24kHz PCM</span></div>
+  </div>
+
+  <!-- ── Gestures / Buttons Settings Modal ── -->
   <div id="settings-modal" class="modal" style="display: none;">
     <div class="modal__content">
       <div class="modal__header">
@@ -88,19 +104,66 @@
     </div>
   </div>
 
-  <!-- ── Orb + status ── -->
+  <!-- ── Arc Reactor Orb Section ── -->
   <section class="orb-section">
-    <div class="orb-wrap">
-      <div class="orb-ring" id="orb-ring"></div>
-      <div class="orb" id="status-orb">
-        <span class="orb-emoji" id="orb-emoji">😴</span>
+    <div class="orb-wrap" id="orb-wrap" data-state="sleeping">
+      <div class="arc-reactor" id="status-orb">
+        <svg class="reactor-svg" viewBox="0 0 140 140">
+          <defs>
+            <radialGradient id="reactorGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffffff" />
+              <stop offset="35%" stop-color="#00f0ff" />
+              <stop offset="70%" stop-color="#0284c7" stop-opacity="0.4" />
+              <stop offset="100%" stop-color="#040711" stop-opacity="0" />
+            </radialGradient>
+            <filter id="hudBlur">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          <!-- Outer Ticks & Track -->
+          <circle cx="70" cy="70" r="64" class="ring-track" />
+          <circle cx="70" cy="70" r="64" class="ring-outer-dashed" />
+          
+          <!-- Mid Segmented Ring -->
+          <circle cx="70" cy="70" r="52" class="ring-mid" />
+          
+          <!-- Inner Polygon -->
+          <polygon points="70,26 108,48 108,92 70,114 32,92 32,48" class="ring-hex" />
+          
+          <!-- Core Ambient Glow -->
+          <circle cx="70" cy="70" r="32" class="ring-ambient" fill="url(#reactorGlow)" />
+          
+          <!-- Optical Glasses Center Silhouette -->
+          <g class="reactor-glasses-glyph" filter="url(#hudBlur)">
+            <path d="M 46 68 C 46 61, 51 57, 57 57 C 63 57, 66 61, 66 68 C 66 75, 62 80, 56 80 C 50 80, 46 75, 46 68 Z" />
+            <path d="M 94 68 C 94 61, 89 57, 83 57 C 77 57, 74 61, 74 68 C 74 75, 78 80, 84 80 C 90 80, 94 75, 94 68 Z" />
+            <line x1="66" y1="65" x2="74" y2="65" stroke-width="2.5" />
+          </g>
+
+          <!-- Quantum Center Dot -->
+          <circle cx="70" cy="70" r="4.5" class="ring-center-dot" />
+        </svg>
+        <div class="reactor-flare"></div>
       </div>
     </div>
-    <p class="state-label" id="status-label">Спит</p>
+
+    <!-- HUD State Label -->
+    <div class="state-container">
+      <span class="hud-bracket">[</span>
+      <p class="state-label" id="status-label">STANDBY // ОЖИДАНИЕ</p>
+      <span class="hud-bracket">]</span>
+    </div>
+
     <!-- Live speech recognition feedback -->
     <div class="live-mic-feedback" id="live-mic-feedback">🎤 Нажмите «Говорить» или «👂 Авто»</div>
-    <!-- ── VAD volume bar ── -->
-    <div class="vad-bar" id="vad-bar" title="Уровень звука микрофона">
+
+    <!-- ── VAD Neon Equalizer Bar ── -->
+    <div class="vad-bar" id="vad-bar" title="Уровень звука очков">
       <div class="vad-bar__fill" id="vad-bar-fill"></div>
     </div>
   </section>
@@ -109,20 +172,24 @@
   <section class="chat" id="chat">
     <div class="chat__inner" id="transcript-scroll">
       <div class="chat__hint" id="chat-hint">
-        <p>👋 Нажмите <strong>👂 Авто</strong> — говорите в очки,<br>Джарвис ответит голосом</p>
+        <div class="hint-icon">⚡</div>
+        <p><strong>ГОЛОСОВОЙ ИНТЕРФЕЙС АКТИВЕН</strong><br>
+        Нажмите <strong>«👂 Авто»</strong> — говорите в очки,<br>
+        Джарвис ответит голосом и выполнит задачи в OpenClaw</p>
       </div>
     </div>
   </section>
 
-  <!-- ── Quick Chips & Text Input Bar ── -->
+  <!-- ── Quick Tactical Chips & Input ── -->
   <section class="quick-input-section">
     <div class="quick-chips">
       <button class="chip-btn" data-prompt="Сколько будет 15 умножить на 4?">⚡ 15 * 4</button>
-      <button class="chip-btn" data-prompt="Передай агенту OpenClaw посчитать 100 минус 37">🚀 OpenClaw задача</button>
+      <button class="chip-btn" data-prompt="Передай агенту OpenClaw проверить сервер и посчитать 120 * 8">🚀 OpenClaw задача</button>
       <button class="chip-btn" data-prompt="Какой статус кандидатов в CRM I CLUB?">💼 I CLUB CRM</button>
+      <button class="chip-btn" data-prompt="Джарвис, статус системы и заряд батареи?">🔋 Батарея & Статус</button>
     </div>
     <form class="text-input-form" id="chat-form">
-      <input type="text" id="chat-input" class="chat-input" placeholder="Написать или сказать в очки..." autocomplete="off" />
+      <input type="text" id="chat-input" class="chat-input" placeholder="Команда для очков или OpenClaw..." autocomplete="off" />
       <button type="submit" class="send-btn" id="chat-send-btn" title="Отправить">➤</button>
     </form>
   </section>
@@ -152,7 +219,7 @@
       <span class="ctrl-btn__label">Авто</span>
     </button>
 
-    <!-- Big mic -->
+    <!-- Big Tactical Mic Button -->
     <button class="ctrl-btn ctrl-btn--mic" id="listen-btn" data-active="false">
       <span class="ctrl-btn__icon" id="listen-icon">🎙️</span>
       <span class="ctrl-btn__label">Говорить</span>
@@ -167,6 +234,6 @@
 
 </div><!-- #app -->
 
-<script type="module" src="js/app.js?v=8"></script>
+<script type="module" src="js/app.js?v=9"></script>
 </body>
 </html>

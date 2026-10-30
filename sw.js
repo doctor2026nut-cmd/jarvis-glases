@@ -4,7 +4,7 @@
  * Cache Fallback для надійної роботи при нестабільному зв'язку на прогулянках.
  */
 
-const CACHE_NAME    = 'jarvis-v8';
+const CACHE_NAME    = 'jarvis-v9';
 const SHELL_ASSETS  = [
   './',
   './index.html',
@@ -18,6 +18,10 @@ const SHELL_ASSETS  = [
   './js/ui.js',
   './js/state.js',
   './js/tools.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/apple-touch-icon.png',
+  './icons/icon.svg',
 ];
 
 // ── Install: кешуємо shell ────────────────────────────────────────────────────
